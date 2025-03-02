@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/pulumi/pulumi-command/sdk/go/command"
 	"github.com/pulumi/pulumi-random/sdk/go/random"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -36,8 +37,7 @@ func main() {
 		}
 		sshKey := string(sshKeyBytes)
 
-		// Use stable random resources by using a Keepers map.
-		// These values will persist as long as the inputs (hostname and role) remain unchanged.
+		// Generate stable random values for username and port using Keepers.
 		userRandom, err := random.NewRandomString(ctx, "userRandom", &random.RandomStringArgs{
 			Length:  pulumi.Int(8),
 			Upper:   pulumi.Bool(false),
@@ -52,12 +52,10 @@ func main() {
 		if err != nil {
 			return err
 		}
-
 		portRandom, err := random.NewRandomInteger(ctx, "portRandom", &random.RandomIntegerArgs{
 			Min: pulumi.Int(20000),
 			Max: pulumi.Int(65000),
 			Keepers: pulumi.IntMap{
-				// Using fixed keepers here to ensure stability.
 				"constant": pulumi.Int(1),
 			},
 		})
@@ -68,7 +66,7 @@ func main() {
 		username := pulumi.Sprintf("user_%s", userRandom.Result)
 		sshPort := portRandom.Result
 
-		// Build the bootstrap script using the stable values.
+		// Build the full bootstrap script.
 		bootstrapScript := pulumi.Sprintf(`#!/bin/bash
 set -e
 
@@ -134,6 +132,11 @@ systemctl restart sshd
 ufw delete allow 22/tcp
 ufw allow %d/tcp comment 'SSH access after hardening'
 
+# 9. Deactivate Default Accounts
+passwd -l debian
+passwd -l root
+echo "Default accounts 'debian' and 'root' have been deactivated."
+
 echo "=== System hardening complete ==="
 echo "SSH user: %s"
 echo "SSH port: %d"
@@ -143,11 +146,25 @@ echo "SSH port: %d"
 			username, username, username, username, username,
 			sshPort, sshPort, username, sshPort)
 
-		// Export outputs.
+		// Export outputs for inspection.
 		ctx.Export("bootstrapScript", bootstrapScript)
 		ctx.Export("machineRole", pulumi.String(role))
 		ctx.Export("sshUser", username)
 		ctx.Export("sshPort", sshPort)
+
+		// Automatically execute the bootstrap script.
+		// Write it to a temporary file, mark it executable, and run it with sudo.
+		execCommand, err := command.NewLocalCommand(ctx, "runBootstrap", &command.LocalCommandArgs{
+			Create: bootstrapScript.ApplyT(func(script string) string {
+				file := "/tmp/bootstrap.sh"
+				// Write the script, chmod, then execute with sudo.
+				return fmt.Sprintf("cat <<'EOF' > %s\n%s\nEOF\nchmod +x %s\nsudo %s", file, script, file, file)
+			}).(pulumi.StringOutput),
+		})
+		if err != nil {
+			return err
+		}
+		ctx.Export("executionCommand", execCommand.ID())
 
 		return nil
 	})
