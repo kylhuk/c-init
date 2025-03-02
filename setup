@@ -27,7 +27,7 @@ func main() {
 		}
 
 		// Download the SSH public key from GitHub.
-		sshKeyURL := "https://raw.githubusercontent.com/kylhuk/c-init/refs/heads/main/assets/key1" // <-- Your provided SSH key URL.
+		sshKeyURL := "https://raw.githubusercontent.com/kylhuk/c-init/refs/heads/main/assets/key1"
 		resp, err := http.Get(sshKeyURL)
 		if err != nil {
 			return fmt.Errorf("failed to download SSH key: %w", err)
@@ -46,50 +46,69 @@ func main() {
 		// Generate a random SSH port (range: 20000 - 65000).
 		sshPort := 20000 + rand.Intn(45000)
 
-		// Construct a comprehensive bootstrap script for system hardening.
-		// This script installs and configures a suite of best-practice security and integrity tools.
+		// Construct a comprehensive bootstrap script that implements best‑practice hardening.
+		// This script will:
+		//   1. Update the system and enable unattended upgrades.
+		//   2. Install security and monitoring tools (ufw, fail2ban, auditd, rkhunter, lynis, aide, apparmor).
+		//   3. Enable and start auditd.
+		//   4. Initialize integrity tools (AIDE, RKHunter, Lynis).
+		//   5. Harden SSH (disable root login and password authentication).
+		//   6. Tune kernel parameters via sysctl.
+		//   7. Configure the firewall with UFW.
+		//   8. Create a non‑root user with the randomized username and deploy the downloaded SSH key.
+		//   9. Randomize the SSH port and update the firewall accordingly.
 		bootstrapScript := fmt.Sprintf(`#!/bin/bash
 set -e
 
 echo "=== Starting system hardening for role: %s ==="
 
-# Update system packages and install security and integrity tools.
+# 1. System Updates and Automatic Upgrades
 apt-get update && apt-get -y upgrade
-apt-get install -y ufw fail2ban auditd rkhunter lynis aide apparmor
+apt-get install -y unattended-upgrades apt-listchanges
+# Enable unattended upgrades with automatic reboot if needed.
+cat > /etc/apt/apt.conf.d/50unattended-upgrades <<EOF
+Unattended-Upgrade::Allowed-Origins {
+	"\${distro_id}:\${distro_codename}-security";
+	"\${distro_id}:\${distro_codename}-updates";
+};
+Unattended-Upgrade::Automatic-Reboot "true";
+EOF
+dpkg-reconfigure -f noninteractive unattended-upgrades
 
-# Initialize AIDE (Advanced Intrusion Detection Environment) if not already done.
+# 2. Install Security and Monitoring Tools
+apt-get install -y ufw fail2ban auditd rkhunter lynis aide apparmor
+systemctl enable auditd && systemctl start auditd
+
+# 3. Intrusion Detection and Integrity Monitoring
+# Initialize AIDE if not already done.
 if [ ! -f /var/lib/aide/aide.db ]; then
     aideinit && cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
 fi
-
-# Update rkhunter definitions and set a baseline.
-rkhunter --update
-rkhunter --propupd
-
-# Run an initial Lynis audit (output goes to /var/log/lynis.log).
+rkhunter --update && rkhunter --propupd
 lynis audit system --quiet
 
-# Harden SSH configuration: disable root login and password authentication.
+# 4. Secure SSH Configuration
 sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 
-# Append extra sysctl settings for additional network hardening.
+# 5. Kernel Parameter Hardening
 cat >> /etc/sysctl.conf <<EOF
 net.ipv4.tcp_syncookies = 1
 net.ipv4.conf.all.accept_source_route = 0
 net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.log_martians = 1
 EOF
 sysctl -p
 
-# Configure UFW: deny all inbound traffic by default, allow outgoing.
+# 6. Firewall Configuration with UFW
 ufw default deny incoming
 ufw default allow outgoing
-
-# Allow temporary SSH access on port 22 during bootstrap.
 ufw allow 22/tcp comment 'Temporary SSH access for bootstrap'
 ufw --force enable
 
-# Create a new non-root user with the randomized username and set up SSH access.
+# 7. Create a Non-Root User for SSH Access
 useradd -m -s /bin/bash %s
 mkdir -p /home/%s/.ssh
 echo "%s" > /home/%s/.ssh/authorized_keys
@@ -97,14 +116,11 @@ chown -R %s:%s /home/%s/.ssh
 chmod 700 /home/%s/.ssh
 chmod 600 /home/%s/.ssh/authorized_keys
 
+# 8. Finalize SSH Configuration: Randomize SSH Port
 echo "Waiting for security services to initialize..."
 sleep 10
-
-# Randomize SSH port: update SSH daemon configuration.
 sed -i 's/^#Port 22/Port %d/' /etc/ssh/sshd_config
 systemctl restart sshd
-
-# Update UFW: remove temporary SSH rule and allow the new SSH port.
 ufw delete allow 22/tcp
 ufw allow %d/tcp comment 'SSH access after hardening'
 
@@ -113,7 +129,7 @@ echo "SSH user: %s"
 echo "SSH port: %d"
 `, role, username, username, sshKey, username, username, username, username, username, username, sshPort, sshPort, username, sshPort)
 
-		// Export outputs for your reference.
+		// Export outputs for later reference.
 		ctx.Export("sshUser", pulumi.String(username))
 		ctx.Export("sshPort", pulumi.Int(sshPort))
 		ctx.Export("machineRole", pulumi.String(role))
