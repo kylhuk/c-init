@@ -3,30 +3,27 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/pulumi/pulumi-random/sdk/go/random"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
-		// Determine the machine's role based on its hostname.
+		// Determine machine role based on hostname.
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = ""
 		}
-		var role string
+		role := "worker"
 		if strings.Contains(strings.ToLower(hostname), "manager") {
 			role = "manager"
-		} else {
-			role = "worker"
 		}
 
-		// Download the SSH public key from GitHub.
+		// Download SSH key from the provided URL.
 		sshKeyURL := "https://raw.githubusercontent.com/kylhuk/c-init/refs/heads/main/assets/key1"
 		resp, err := http.Get(sshKeyURL)
 		if err != nil {
@@ -39,15 +36,40 @@ func main() {
 		}
 		sshKey := string(sshKeyBytes)
 
-		// Generate a random SSH username.
-		rand.Seed(time.Now().UnixNano())
-		username := fmt.Sprintf("user_%08x", rand.Uint32())
+		// Use stable random resources by using a Keepers map.
+		// These values will persist as long as the inputs (hostname and role) remain unchanged.
+		userRandom, err := random.NewRandomString(ctx, "userRandom", &random.RandomStringArgs{
+			Length:  pulumi.Int(8),
+			Upper:   pulumi.Bool(false),
+			Lower:   pulumi.Bool(true),
+			Number:  pulumi.Bool(true),
+			Special: pulumi.Bool(false),
+			Keepers: pulumi.StringMap{
+				"hostname": pulumi.String(hostname),
+				"role":     pulumi.String(role),
+			},
+		})
+		if err != nil {
+			return err
+		}
 
-		// Generate a random SSH port (range: 20000 - 65000).
-		sshPort := 20000 + rand.Intn(45000)
+		portRandom, err := random.NewRandomInteger(ctx, "portRandom", &random.RandomIntegerArgs{
+			Min: pulumi.Int(20000),
+			Max: pulumi.Int(65000),
+			Keepers: pulumi.IntMap{
+				// Using fixed keepers here to ensure stability.
+				"constant": pulumi.Int(1),
+			},
+		})
+		if err != nil {
+			return err
+		}
 
-		// Construct a comprehensive bootstrap script that applies best-practice hardening.
-		bootstrapScript := fmt.Sprintf(`#!/bin/bash
+		username := pulumi.Sprintf("user_%s", userRandom.Result)
+		sshPort := portRandom.Result
+
+		// Build the bootstrap script using the stable values.
+		bootstrapScript := pulumi.Sprintf(`#!/bin/bash
 set -e
 
 echo "=== Starting system hardening for role: %s ==="
@@ -57,8 +79,8 @@ apt-get update && apt-get -y upgrade
 apt-get install -y unattended-upgrades apt-listchanges
 cat > /etc/apt/apt.conf.d/50unattended-upgrades <<EOF
 Unattended-Upgrade::Allowed-Origins {
-	"\${distro_id}:\${distro_codename}-security";
-	"\${distro_id}:\${distro_codename}-updates";
+	"${distro_id}:${distro_codename}-security";
+	"${distro_id}:${distro_codename}-updates";
 };
 Unattended-Upgrade::Automatic-Reboot "true";
 EOF
@@ -115,13 +137,17 @@ ufw allow %d/tcp comment 'SSH access after hardening'
 echo "=== System hardening complete ==="
 echo "SSH user: %s"
 echo "SSH port: %d"
-`, role, username, username, sshKey, username, username, username, username, username, username, sshPort, sshPort, username, sshPort)
+`,
+			pulumi.String(role),
+			username, username, pulumi.String(sshKey), username,
+			username, username, username, username, username,
+			sshPort, sshPort, username, sshPort)
 
-		// Export outputs for reference.
-		ctx.Export("sshUser", pulumi.String(username))
-		ctx.Export("sshPort", pulumi.Int(sshPort))
+		// Export outputs.
+		ctx.Export("bootstrapScript", bootstrapScript)
 		ctx.Export("machineRole", pulumi.String(role))
-		ctx.Export("bootstrapScript", pulumi.String(bootstrapScript))
+		ctx.Export("sshUser", username)
+		ctx.Export("sshPort", sshPort)
 
 		return nil
 	})

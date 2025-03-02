@@ -4,11 +4,24 @@ set -e
 echo "=== Starting bootstrap process ==="
 
 # Update packages and install basic tools.
-apt-get update && apt-get install -y git curl ufw openssl golang-go
+apt-get update && apt-get install -y git curl ufw openssl golang-go wget
+
+# Check the current Go version.
+CURRENT_GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+echo "Current Go version: $CURRENT_GO_VERSION"
+
+# If the version is less than 1.21, upgrade it to Go 1.21.1.
+if dpkg --compare-versions "$CURRENT_GO_VERSION" lt "1.21"; then
+    echo "Current Go version ($CURRENT_GO_VERSION) is less than required 1.21. Upgrading to Go 1.21.1..."
+    wget https://dl.google.com/go/go1.21.1.linux-amd64.tar.gz -O /tmp/go1.21.1.linux-amd64.tar.gz
+    rm -rf /usr/local/go
+    tar -C /usr/local -xzf /tmp/go1.21.1.linux-amd64.tar.gz
+    export PATH=/usr/local/go/bin:$PATH
+    echo "Upgraded Go version: $(go version)"
+fi
 
 # Define the passphrase file path.
 PASSFILE="/root/.pulumi-passphrase"
-
 if [ -f "$PASSFILE" ]; then
     export PULUMI_CONFIG_PASSPHRASE_FILE="$PASSFILE"
     echo "Using existing Pulumi passphrase from $PASSFILE"
@@ -60,9 +73,9 @@ STACK_NAME="organization/alpstar/dev"
 
 echo "Initializing stack '$STACK_NAME'..."
 if pulumi stack select --cwd "$WORKDIR/pulumi" "$STACK_NAME"; then
-  echo "Stack '$STACK_NAME' selected."
+    echo "Stack '$STACK_NAME' selected."
 else
-  pulumi stack init --cwd "$WORKDIR/pulumi" "$STACK_NAME"
+    pulumi stack init --cwd "$WORKDIR/pulumi" "$STACK_NAME"
 fi
 
 echo "Deploying infrastructure with Pulumi..."
