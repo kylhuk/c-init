@@ -1,0 +1,3 @@
+name: c-init
+runtime: go
+description: A Pulumi project for hardening Debian 12 systems.
