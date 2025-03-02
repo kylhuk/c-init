@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulumi/pulumi-command/sdk/go/command"
-	"github.com/pulumi/pulumi-random/sdk/go/random"
+	"github.com/pulumi/pulumi-command/sdk/v3/go/command"
+	"github.com/pulumi/pulumi-random/sdk/v3/go/random"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -66,7 +66,7 @@ func main() {
 		username := pulumi.Sprintf("user_%s", userRandom.Result)
 		sshPort := portRandom.Result
 
-		// Build the full bootstrap script.
+		// Build the complete bootstrap script (without swap creation).
 		bootstrapScript := pulumi.Sprintf(`#!/bin/bash
 set -e
 
@@ -146,18 +146,17 @@ echo "SSH port: %d"
 			username, username, username, username, username,
 			sshPort, sshPort, username, sshPort)
 
-		// Export outputs for inspection.
+		// Export outputs so you can inspect them.
 		ctx.Export("bootstrapScript", bootstrapScript)
 		ctx.Export("machineRole", pulumi.String(role))
 		ctx.Export("sshUser", username)
 		ctx.Export("sshPort", sshPort)
 
 		// Automatically execute the bootstrap script.
-		// Write it to a temporary file, mark it executable, and run it with sudo.
+		// The command writes the script to /tmp/bootstrap.sh, makes it executable, and then runs it with sudo.
 		execCommand, err := command.NewLocalCommand(ctx, "runBootstrap", &command.LocalCommandArgs{
 			Create: bootstrapScript.ApplyT(func(script string) string {
 				file := "/tmp/bootstrap.sh"
-				// Write the script, chmod, then execute with sudo.
 				return fmt.Sprintf("cat <<'EOF' > %s\n%s\nEOF\nchmod +x %s\nsudo %s", file, script, file, file)
 			}).(pulumi.StringOutput),
 		})
