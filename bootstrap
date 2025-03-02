@@ -1,65 +1,36 @@
 #!/bin/bash
 set -e
 
-echo "=== Starting complete bootstrap process ==="
+echo "=== Starting bootstrap process ==="
 
-# Ensure we’re running as root.
-if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root."
-  exit 1
-fi
+# Update packages and install basic tools.
+apt-get update && apt-get install -y git curl ufw
 
-# Update system packages and install essential security tools.
-echo "Updating and installing prerequisites..."
-apt-get update && apt-get upgrade -y
-apt-get install -y git curl ufw fail2ban auditd rkhunter lynis aide apparmor
-
-# Install Pulumi if it isn’t already installed.
+# Install Pulumi if it's not already installed.
 if ! command -v pulumi &>/dev/null; then
   echo "Installing Pulumi..."
   curl -fsSL https://get.pulumi.com | sh
   export PATH=$PATH:$HOME/.pulumi/bin
-else
-  echo "Pulumi is already installed."
 fi
 
-# Clone the public Pulumi repository that contains your infrastructure code.
-REPO_URL="git@github.com:kylhuk/c-init.git"
+# Clone the public repository containing the Pulumi program.
+REPO_URL="git@github.com:kylhuk/c-init.git"  # Your provided Git repo URL.
 WORKDIR="/opt/pulumi-bootstrap"
 rm -rf "$WORKDIR"
 echo "Cloning repository from $REPO_URL..."
 git clone "$REPO_URL" "$WORKDIR"
 cd "$WORKDIR"
 
-# Determine the machine's role automatically based on its hostname.
-HOSTNAME=$(hostname)
-if [[ "$HOSTNAME" =~ [Mm]anager ]]; then
-    ROLE="manager"
-else
-    ROLE="worker"
-fi
-echo "Determined role: $ROLE"
-
-# Download your SSH public key from GitHub.
-SSH_KEY_URL="https://raw.githubusercontent.com/kylhuk/c-init/refs/heads/main/assets/key1"
-echo "Downloading SSH public key from $SSH_KEY_URL..."
-SSH_KEY=$(curl -fsSL "$SSH_KEY_URL")
-
-# Log into Pulumi (using a local file backend).
+# Log in to Pulumi using the local file backend.
 echo "Logging into Pulumi..."
 pulumi login file://~/.pulumi
 
-# Initialize the Pulumi stack (named "dev"). If it already exists, continue.
-echo "Initializing Pulumi stack 'dev'..."
+# Initialize (or use an existing) Pulumi stack.
+echo "Initializing stack 'dev'..."
 pulumi stack init dev || echo "Stack 'dev' already exists."
 
-# Configure the Pulumi stack with the machine role and SSH key.
-echo "Setting Pulumi configuration..."
-pulumi config set role "$ROLE" --stack dev
-pulumi config set sshKey "$SSH_KEY" --stack dev
-
 # Deploy the infrastructure with Pulumi.
-echo "Deploying hardened infrastructure with Pulumi..."
+echo "Deploying infrastructure with Pulumi..."
 pulumi up --yes --stack dev
 
-echo "=== Bootstrap process complete. Check Pulumi outputs for SSH connection details. ==="
+echo "=== Bootstrap process complete ==="
