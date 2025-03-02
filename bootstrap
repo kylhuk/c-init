@@ -4,12 +4,18 @@ set -e
 echo "=== Starting bootstrap process ==="
 
 # Update packages and install basic tools.
-apt-get update && apt-get install -y git curl ufw
+apt-get update && apt-get install -y git curl ufw openssl golang-go
+
+# Generate a random passphrase for Pulumi secrets encryption.
+PASS=$(openssl rand -base64 32)
+export PULUMI_CONFIG_PASSPHRASE="$PASS"
+echo "Pulumi config encryption passphrase: $PASS"
 
 # Check for Pulumi; if not found, install it.
 if ! command -v pulumi &>/dev/null; then
   echo "Installing Pulumi..."
   curl -fsSL https://get.pulumi.com | sh
+  # Immediately export Pulumi's bin directory to PATH for this session.
   export PATH=$PATH:$HOME/.pulumi/bin
 fi
 
@@ -31,13 +37,17 @@ cd "$WORKDIR"
 echo "Logging into Pulumi..."
 pulumi login file://~/.pulumi
 
-# Use your fully qualified stack name (update as needed).
+# Define the fully qualified stack name.
 STACK_NAME="organization/alpstar/dev"
 
 echo "Initializing stack '$STACK_NAME'..."
-pulumi stack init "$STACK_NAME" || echo "Stack '$STACK_NAME' already exists."
+if pulumi stack select --cwd "$WORKDIR" "$STACK_NAME"; then
+  echo "Stack '$STACK_NAME' selected."
+else
+  pulumi stack init --cwd "$WORKDIR" "$STACK_NAME"
+fi
 
 echo "Deploying infrastructure with Pulumi..."
-pulumi up --yes --stack "$STACK_NAME"
+pulumi up --cwd "$WORKDIR" --yes --stack "$STACK_NAME"
 
 echo "=== Bootstrap process complete ==="
