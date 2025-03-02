@@ -46,17 +46,7 @@ func main() {
 		// Generate a random SSH port (range: 20000 - 65000).
 		sshPort := 20000 + rand.Intn(45000)
 
-		// Construct a comprehensive bootstrap script that implements best‑practice hardening.
-		// This script will:
-		//   1. Update the system and enable unattended upgrades.
-		//   2. Install security and monitoring tools (ufw, fail2ban, auditd, rkhunter, lynis, aide, apparmor).
-		//   3. Enable and start auditd.
-		//   4. Initialize integrity tools (AIDE, RKHunter, Lynis).
-		//   5. Harden SSH (disable root login and password authentication).
-		//   6. Tune kernel parameters via sysctl.
-		//   7. Configure the firewall with UFW.
-		//   8. Create a non‑root user with the randomized username and deploy the downloaded SSH key.
-		//   9. Randomize the SSH port and update the firewall accordingly.
+		// Construct a comprehensive bootstrap script that applies best-practice hardening.
 		bootstrapScript := fmt.Sprintf(`#!/bin/bash
 set -e
 
@@ -65,7 +55,6 @@ echo "=== Starting system hardening for role: %s ==="
 # 1. System Updates and Automatic Upgrades
 apt-get update && apt-get -y upgrade
 apt-get install -y unattended-upgrades apt-listchanges
-# Enable unattended upgrades with automatic reboot if needed.
 cat > /etc/apt/apt.conf.d/50unattended-upgrades <<EOF
 Unattended-Upgrade::Allowed-Origins {
 	"\${distro_id}:\${distro_codename}-security";
@@ -80,7 +69,6 @@ apt-get install -y ufw fail2ban auditd rkhunter lynis aide apparmor
 systemctl enable auditd && systemctl start auditd
 
 # 3. Intrusion Detection and Integrity Monitoring
-# Initialize AIDE if not already done.
 if [ ! -f /var/lib/aide/aide.db ]; then
     aideinit && cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
 fi
@@ -129,7 +117,7 @@ echo "SSH user: %s"
 echo "SSH port: %d"
 `, role, username, username, sshKey, username, username, username, username, username, username, sshPort, sshPort, username, sshPort)
 
-		// Export outputs for later reference.
+		// Export outputs for reference.
 		ctx.Export("sshUser", pulumi.String(username))
 		ctx.Export("sshPort", pulumi.Int(sshPort))
 		ctx.Export("machineRole", pulumi.String(role))
