@@ -15,7 +15,6 @@ echo "Pulumi config encryption passphrase: $PASS"
 if ! command -v pulumi &>/dev/null; then
   echo "Installing Pulumi..."
   curl -fsSL https://get.pulumi.com | sh
-  # Immediately export Pulumi's bin directory to PATH for this session.
   export PATH=$PATH:$HOME/.pulumi/bin
 fi
 
@@ -25,29 +24,32 @@ if ! command -v pulumi &>/dev/null; then
   exit 1
 fi
 
-# Clone the public repository using HTTPS.
+# Clone the repository using HTTPS.
 REPO_URL="https://github.com/kylhuk/c-init.git"
 WORKDIR="/opt/pulumi-bootstrap"
 rm -rf "$WORKDIR"
 echo "Cloning repository from $REPO_URL..."
 git clone "$REPO_URL" "$WORKDIR"
-cd "$WORKDIR"
+
+# Change directory into the pulumi project directory.
+cd "$WORKDIR/pulumi"
 
 # Log in to Pulumi using the local file backend.
 echo "Logging into Pulumi..."
 pulumi login file://~/.pulumi
 
 # Define the fully qualified stack name.
+# Ensure that the project name here ("alpstar") matches your Pulumi.yaml.
 STACK_NAME="organization/alpstar/dev"
 
 echo "Initializing stack '$STACK_NAME'..."
-if pulumi stack select --cwd "$WORKDIR" "$STACK_NAME"; then
+if pulumi stack select --cwd "$WORKDIR/pulumi" "$STACK_NAME"; then
   echo "Stack '$STACK_NAME' selected."
 else
-  pulumi stack init --cwd "$WORKDIR" "$STACK_NAME"
+  pulumi stack init --cwd "$WORKDIR/pulumi" "$STACK_NAME"
 fi
 
 echo "Deploying infrastructure with Pulumi..."
-pulumi up --cwd "$WORKDIR" --yes --stack "$STACK_NAME"
+pulumi up --cwd "$WORKDIR/pulumi" --yes --stack "$STACK_NAME"
 
 echo "=== Bootstrap process complete ==="
