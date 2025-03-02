@@ -6,15 +6,21 @@ echo "=== Starting bootstrap process ==="
 # Update packages and install basic tools.
 apt-get update && apt-get install -y git curl ufw
 
-# Install Pulumi if it's not already installed.
+# Check for Pulumi; if not found, install it.
 if ! command -v pulumi &>/dev/null; then
   echo "Installing Pulumi..."
   curl -fsSL https://get.pulumi.com | sh
   export PATH=$PATH:$HOME/.pulumi/bin
 fi
 
-# Clone the public repository containing the Pulumi program.
-REPO_URL="git@github.com:kylhuk/c-init.git"  # Your provided Git repo URL.
+# Verify Pulumi is installed.
+if ! command -v pulumi &>/dev/null; then
+  echo "Pulumi installation failed or is not in PATH."
+  exit 1
+fi
+
+# Clone the public repository using HTTPS.
+REPO_URL="https://github.com/kylhuk/c-init.git"
 WORKDIR="/opt/pulumi-bootstrap"
 rm -rf "$WORKDIR"
 echo "Cloning repository from $REPO_URL..."
@@ -25,12 +31,13 @@ cd "$WORKDIR"
 echo "Logging into Pulumi..."
 pulumi login file://~/.pulumi
 
-# Initialize (or use an existing) Pulumi stack.
-echo "Initializing stack 'dev'..."
-pulumi stack init dev || echo "Stack 'dev' already exists."
+# Use your fully qualified stack name (update as needed).
+STACK_NAME="organization/alpstar/dev"
 
-# Deploy the infrastructure with Pulumi.
+echo "Initializing stack '$STACK_NAME'..."
+pulumi stack init "$STACK_NAME" || echo "Stack '$STACK_NAME' already exists."
+
 echo "Deploying infrastructure with Pulumi..."
-pulumi up --yes --stack dev
+pulumi up --yes --stack "$STACK_NAME"
 
 echo "=== Bootstrap process complete ==="
