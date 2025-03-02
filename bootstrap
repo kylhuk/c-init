@@ -6,10 +6,19 @@ echo "=== Starting bootstrap process ==="
 # Update packages and install basic tools.
 apt-get update && apt-get install -y git curl ufw openssl golang-go
 
-# Generate a random passphrase for Pulumi secrets encryption.
-PASS=$(openssl rand -base64 32)
-export PULUMI_CONFIG_PASSPHRASE="$PASS"
-echo "Pulumi config encryption passphrase: $PASS"
+# Define the passphrase file path.
+PASSFILE="/root/.pulumi-passphrase"
+
+if [ -f "$PASSFILE" ]; then
+    export PULUMI_CONFIG_PASSPHRASE_FILE="$PASSFILE"
+    echo "Using existing Pulumi passphrase from $PASSFILE"
+else
+    PASS=$(openssl rand -base64 32)
+    echo "$PASS" > "$PASSFILE"
+    chmod 600 "$PASSFILE"
+    export PULUMI_CONFIG_PASSPHRASE_FILE="$PASSFILE"
+    echo "Generated and saved new Pulumi passphrase: $PASS"
+fi
 
 # Check for Pulumi; if not found, install it.
 if ! command -v pulumi &>/dev/null; then
@@ -33,6 +42,13 @@ git clone "$REPO_URL" "$WORKDIR"
 
 # Change directory into the pulumi project directory.
 cd "$WORKDIR/pulumi"
+
+# Check if a go.mod file exists; if not, initialize a module.
+if [ ! -f go.mod ]; then
+    echo "No go.mod file found; initializing module..."
+    go mod init alpstar
+    go mod tidy
+fi
 
 # Log in to Pulumi using the local file backend.
 echo "Logging into Pulumi..."
