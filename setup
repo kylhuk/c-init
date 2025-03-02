@@ -1,0 +1,124 @@
+package main
+
+import (
+	"fmt"
+	"io/ioutil"
+	"math/rand"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+)
+
+func main() {
+	pulumi.Run(func(ctx *pulumi.Context) error {
+		// Determine the machine's role based on its hostname.
+		hostname, err := os.Hostname()
+		if err != nil {
+			hostname = ""
+		}
+		var role string
+		if strings.Contains(strings.ToLower(hostname), "manager") {
+			role = "manager"
+		} else {
+			role = "worker"
+		}
+
+		// Download the SSH public key from GitHub.
+		sshKeyURL := "https://raw.githubusercontent.com/kylhuk/c-init/refs/heads/main/assets/key1" // <-- Your provided SSH key URL.
+		resp, err := http.Get(sshKeyURL)
+		if err != nil {
+			return fmt.Errorf("failed to download SSH key: %w", err)
+		}
+		defer resp.Body.Close()
+		sshKeyBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read SSH key: %w", err)
+		}
+		sshKey := string(sshKeyBytes)
+
+		// Generate a random SSH username.
+		rand.Seed(time.Now().UnixNano())
+		username := fmt.Sprintf("user_%08x", rand.Uint32())
+
+		// Generate a random SSH port (range: 20000 - 65000).
+		sshPort := 20000 + rand.Intn(45000)
+
+		// Construct a comprehensive bootstrap script for system hardening.
+		// This script installs and configures a suite of best-practice security and integrity tools.
+		bootstrapScript := fmt.Sprintf(`#!/bin/bash
+set -e
+
+echo "=== Starting system hardening for role: %s ==="
+
+# Update system packages and install security and integrity tools.
+apt-get update && apt-get -y upgrade
+apt-get install -y ufw fail2ban auditd rkhunter lynis aide apparmor
+
+# Initialize AIDE (Advanced Intrusion Detection Environment) if not already done.
+if [ ! -f /var/lib/aide/aide.db ]; then
+    aideinit && cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+fi
+
+# Update rkhunter definitions and set a baseline.
+rkhunter --update
+rkhunter --propupd
+
+# Run an initial Lynis audit (output goes to /var/log/lynis.log).
+lynis audit system --quiet
+
+# Harden SSH configuration: disable root login and password authentication.
+sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+# Append extra sysctl settings for additional network hardening.
+cat >> /etc/sysctl.conf <<EOF
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+EOF
+sysctl -p
+
+# Configure UFW: deny all inbound traffic by default, allow outgoing.
+ufw default deny incoming
+ufw default allow outgoing
+
+# Allow temporary SSH access on port 22 during bootstrap.
+ufw allow 22/tcp comment 'Temporary SSH access for bootstrap'
+ufw --force enable
+
+# Create a new non-root user with the randomized username and set up SSH access.
+useradd -m -s /bin/bash %s
+mkdir -p /home/%s/.ssh
+echo "%s" > /home/%s/.ssh/authorized_keys
+chown -R %s:%s /home/%s/.ssh
+chmod 700 /home/%s/.ssh
+chmod 600 /home/%s/.ssh/authorized_keys
+
+echo "Waiting for security services to initialize..."
+sleep 10
+
+# Randomize SSH port: update SSH daemon configuration.
+sed -i 's/^#Port 22/Port %d/' /etc/ssh/sshd_config
+systemctl restart sshd
+
+# Update UFW: remove temporary SSH rule and allow the new SSH port.
+ufw delete allow 22/tcp
+ufw allow %d/tcp comment 'SSH access after hardening'
+
+echo "=== System hardening complete ==="
+echo "SSH user: %s"
+echo "SSH port: %d"
+`, role, username, username, sshKey, username, username, username, username, username, username, sshPort, sshPort, username, sshPort)
+
+		// Export outputs for your reference.
+		ctx.Export("sshUser", pulumi.String(username))
+		ctx.Export("sshPort", pulumi.Int(sshPort))
+		ctx.Export("machineRole", pulumi.String(role))
+		ctx.Export("bootstrapScript", pulumi.String(bootstrapScript))
+
+		return nil
+	})
+}
